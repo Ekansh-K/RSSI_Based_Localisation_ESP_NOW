@@ -39,7 +39,7 @@ It will not replace UWB for sub-10 cm industrial tracking, but for **cheap, low-
 
 ## How it works
 
-![Aura Tracker Working Diagram](images\0918e876-8dcb-4706-9223-c4afcbce3bce.png)
+![Aura Tracker Working Diagram](images/0918e876-8dcb-4706-9223-c4afcbce3bce.png)
 
 | Component | Role |
 |-----------|------|
