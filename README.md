@@ -11,11 +11,13 @@
 
 Hello — this is my project, **Aura Tracker**.
 
-This is one of the projects where I explore **RSSI-based indoor localization** using cheap **ESP32-C3** boards: a small SoC that is inexpensive, easy to flash with PlatformIO, and light on power so a tag or anchor can run for a long time on a small battery or power bank (hours of continuous use in a typical lab setup, depending on battery size and duty cycle).
+This is one of the projects where I explore **RSSI-based indoor localization** using cheap **ESP32-C3** boards a small microcontroller that  is inexpensive and light on power so a tag or anchor can run for a long time on a small battery cell  which is why ESP32-C3 was chosen for this project. 
 
-Aura Tracker is a **room-scale indoor positioning system**. Fixed anchors measure the received signal strength of a mobile tag over ESP-NOW, convert that into distance estimates after calibration, and a Python coordinator solves for 2D position with multilateration and a Kalman filter, then serves a live map in the browser.
+Aura Tracker is a **indoor positioning system**. Fixed anchors measure the received signal strength of a mobile tag over ESP-NOW, convert that into distance estimates after calibration, and a Python coordinator solves for 2D position with multilateration and a Kalman filter, then serves a live map in the browser.
 
-I built it as a complete system you can actually run: firmware, calibration, multi-room layout editor, and live tracking — not only a theory write-up.
+I built it as a complete system you can actually run: firmware, calibration, multi-room layout editor, and live tracking it has the capability to scale with however many anchor nodes you add and each anchor node you add will directly help you improve the accuracy. 
+
+And yes this is called Aura Tracker, also as to the fact that I couldn't really find a better name for this. As RSSI-based localization, same kind of bad .
 
 ---
 
@@ -29,7 +31,7 @@ I built it as a complete system you can actually run: firmware, calibration, mul
 
 - **Hospitals:** track portable equipment, sample carts, or tagged staff devices within a ward without relying on outdoor GPS.  
 - **Mental health institutes and care facilities:** monitor movement of authorized wearable tags within designated indoor areas for safety and workflow, while staying on a local network (no cloud required for the core pipeline).  
-- **Labs and campuses:** demo indoor IoT localization, multipath behaviour, and filtering on real hardware.  
+- **Labs and campuses:** demo indoorlocalization, multipath behaviour, and filtering .
 
 It will not replace UWB for sub-10 cm industrial tracking, but for **cheap, low-power, self-hosted indoor presence and path tracking**, RSSI on ESP32-C3 is a practical approach.
 
