@@ -232,7 +232,7 @@ Define rooms and assign anchors in global metres. Room-local fix if that room ha
 
 ## Results
 
-![Localization accuracy with antenna mod](results/antenna/localization_accuracy.png)
+![Localization accuracy with antenna mod](images/localization_accuracy.png)
 
 *Ground truth vs estimated points on the floor plan, plus raw vs Kalman error CDF (antenna-mod run).*
 
@@ -240,7 +240,7 @@ Define rooms and assign anchors in global metres. Room-local fix if that room ha
 
 ## Accuracy
 
-With careful calibration and line-of-sight, mean error on the order of **~0.5–1.5 m** in a small room is realistic. Multipath, body blocking, and antenna orientation dominate residual error. Kalman improves temporal smoothness; it does not invent true geometry.
+With careful calibration and line-of-sight, mean error on the order of **~0.5–1.5 m** in a small room is realistic.   Body blocking, and antenna orientation dominate residual error. Kalman improves temporal smoothness; it does not invent true geometry.
 
 ---
 
