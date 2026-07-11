@@ -39,17 +39,7 @@ It will not replace UWB for sub-10 cm industrial tracking, but for **cheap, low-
 
 ## How it works
 
-```
-  [ TAG ]  ──ESP-NOW broadcast (~200 ms)──►  [ Anchor 1 ] ──UDP──┐
-                                              [ Anchor 2 ] ──UDP──┤
-                                              [ Anchor 3 ] ──UDP──┼──►  [ Coordinator ]
-                                              [ Anchor N ] ──UDP──┘         │
-                                                                            ▼
-                                                                log-distance path loss
-                                                                weighted multilateration
-                                                                2D Kalman filter
-                                                                Live Track UI
-```
+![Aura Tracker Working Diagram](images\0918e876-8dcb-4706-9223-c4afcbce3bce.png)
 
 | Component | Role |
 |-----------|------|
