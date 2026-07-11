@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aura Tracker — Map Editor</title>
+<link rel="stylesheet" href="/static/css/theme.css">
+</head>
+<body>
+<nav class="topnav">
+  <a class="brand" href="/">
+    <img class="brand-logo" src="/static/img/aura-logo.jpg" alt="Aura Tracker">
+    <span class="brand-text">
+      <span class="brand-title">Aura Tracker</span>
+      <span class="brand-sub">RSSI based localization</span>
+    </span>
+  </a>
+  <div class="navlinks">
+    <a href="/"><span class="nav-ico">⌂</span> Home</a>
+    <a href="/setup" class="active"><span class="nav-ico">▦</span> Map Editor</a>
+    <a href="/calibrate"><span class="nav-ico">◎</span> Calibration</a>
+    <a href="/live"><span class="nav-ico">◉</span> Live Track</a>
+  </div>
+</nav>
+<div class="page">
+  <h1>Rooms & anchors</h1>
+  <p class="sub">Scroll to <strong>zoom</strong>. Drag the map background to pan. Drag anchors or rooms — rooms <strong>snap to each other</strong>. Shift = half-step snap.</p>
+
+  <div class="split">
+    <div class="panel" style="padding:16px">
+      <h2 style="font-size:1rem;color:var(--neon-soft);margin-bottom:10px">Rooms</h2>
+      <div class="list" id="roomList"></div>
+      <button class="btn" style="width:100%;margin-top:10px" id="btnAddRoom">+ Add room</button>
+
+      <h2 style="font-size:1rem;color:var(--neon-soft);margin:18px 0 10px">Anchors</h2>
+      <div class="list" id="anchorList"></div>
+      <div class="row" style="margin-top:10px">
+        <input type="number" id="newAid" placeholder="ID" min="1" max="254" style="width:80px">
+        <button class="btn" id="btnAddAnchor">+ Add</button>
+      </div>
+      <p class="hint">Flash firmware with matching <code>ANCHOR_ID</code> (1–254). Need ≥3 enabled anchors for tracking.</p>
+
+      <label>Base grid snap (m)</label>
+      <select id="snapSel">
+        <option value="0.1">0.10</option>
+        <option value="0.25">0.25</option>
+        <option value="0.5" selected>0.50</option>
+        <option value="1">1.00</option>
+      </select>
+      <p class="hint" id="effSnapHint">Effective snap scales with zoom.</p>
+    </div>
+
+    <div>
+      <div class="row" style="margin-bottom:10px">
+        <button class="btn" id="btnZoomIn" type="button">Zoom +</button>
+        <button class="btn" id="btnZoomOut" type="button">Zoom −</button>
+        <button class="btn" id="btnZoomFit" type="button">Fit layout</button>
+        <span class="badge" id="zoomBadge">zoom 1.0×</span>
+      </div>
+      <div class="panel" id="mapwrap"><canvas class="map" id="map"></canvas></div>
+      <p class="hint" id="mapHint">Wheel zoom · drag empty area to pan · drag room to snap to neighbors</p>
+    </div>
+
+    <div class="panel" style="padding:16px">
+      <h2 style="font-size:1rem;color:var(--neon-soft);margin-bottom:10px">Selected</h2>
+      <div id="propsEmpty" class="hint">Select a room or anchor.</div>
+      <div id="propsRoom" style="display:none">
+        <label>Name</label><input id="rName">
+        <label>Origin X (m)</label><input type="number" step="0.05" id="rOx">
+        <label>Origin Y (m)</label><input type="number" step="0.05" id="rOy">
+        <label>Width (m)</label><input type="number" step="0.05" id="rW">
+        <label>Height (m)</label><input type="number" step="0.05" id="rH">
+        <label style="display:flex;align-items:center;gap:8px;text-transform:none;margin-top:10px">
+          <input type="checkbox" id="rMoveAnchors" checked> Move anchors with room
+        </label>
+        <div class="row" style="margin-top:12px">
+          <button class="btn" id="btnSaveRoom">Apply room</button>
+          <button class="btn danger" id="btnDelRoom">Delete</button>
+        </div>
+        <p class="hint">Drag the room on the map to snap against other rooms.</p>
+      </div>
+      <div id="propsAnchor" style="display:none">
+        <label>Name</label><input id="aName">
+        <label>X global (m)</label><input type="number" step="0.05" id="aX">
+        <label>Y global (m)</label><input type="number" step="0.05" id="aY">
+        <label>Room</label><select id="aRoom"></select>
+        <label style="display:flex;align-items:center;gap:8px;text-transform:none;margin-top:10px">
+          <input type="checkbox" id="aEn"> Enabled
+        </label>
+        <div class="row" style="margin-top:12px">
+          <button class="btn" id="btnSaveAnchor">Apply anchor</button>
+          <button class="btn danger" id="btnDelAnchor">Delete</button>
+        </div>
+        <p class="hint">Path-loss A/n are set in Calibration.</p>
+      </div>
+      <div style="margin-top:16px" id="unregBox"></div>
+    </div>
+  </div>
+</div>
+<script src="/static/js/map.js"></script>
+<script>
+let view = null;
+let sel = { type: null, id: null };
+const map = FloorMap.createMap(document.getElementById('map'), {
+  interactive: true,
+  dragRooms: true,
+  moveAnchorsWithRoom: () => document.getElementById('rMoveAnchors').checked,
+  onSelect(a) { selectAnchor(a.id); },
+  onSelectRoom(r) { selectRoom(r.id); },
+  onZoomChange({ zoom, snap }) {
+    document.getElementById('zoomBadge').textContent = `zoom ${zoom.toFixed(1)}× · snap ${snap} m`;
+    document.getElementById('effSnapHint').textContent =
+      `Effective snap now ${snap} m (base ${view ? view.config.grid_snap_m : '—'} m ÷ zoom).`;
+  },
+  async onAnchorMove(a) {
+    await api(`/api/anchors/${a.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ x: a.x, y: a.y }),
+    });
+    document.getElementById('mapHint').textContent =
+      `A${a.id} snapped to (${a.x.toFixed(2)}, ${a.y.toFixed(2)}) m — saved`;
+  },
+  async onRoomMove(room, delta) {
+    await api(`/api/rooms/${room.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        origin_x: room.origin_x,
+        origin_y: room.origin_y,
+        move_anchors: document.getElementById('rMoveAnchors').checked,
+      }),
+    });
+    if (document.getElementById('rMoveAnchors').checked) {
+      for (const a of map.state.anchors) {
+        if (a.room_id === room.id) {
+          await api(`/api/anchors/${a.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ x: a.x, y: a.y }),
+          });
+        }
+      }
+    }
+    document.getElementById('mapHint').textContent =
+      `${room.name} @ (${room.origin_x.toFixed(2)}, ${room.origin_y.toFixed(2)}) m — saved`;
+    await load();
+    selectRoom(room.id);
+  },
+});
+
+document.getElementById('btnZoomIn').onclick = () => map.zoomIn();
+document.getElementById('btnZoomOut').onclick = () => map.zoomOut();
+document.getElementById('btnZoomFit').onclick = () => map.fitWorld();
+
+async function api(path, opts) {
+  const r = await fetch(path, Object.assign({
+    headers: { 'Content-Type': 'application/json' },
+  }, opts || {}));
+  return r.json();
+}
+
+function refreshLists() {
+  const c = view.config;
+  const rl = document.getElementById('roomList');
+  rl.innerHTML = (c.rooms || []).map(r =>
+    `<div class="list-item ${sel.type==='room'&&sel.id===r.id?'active':''}" data-rid="${r.id}">
+      <span>${r.name}</span><span class="badge">${r.width}×${r.height}</span></div>`
+  ).join('') || '<div class="hint">No rooms</div>';
+  rl.querySelectorAll('[data-rid]').forEach(el => el.onclick = () => selectRoom(el.dataset.rid));
+
+  const al = document.getElementById('anchorList');
+  al.innerHTML = (c.anchors || []).map(a =>
+    `<div class="list-item ${sel.type==='anchor'&&sel.id===a.id?'active':''}" data-aid="${a.id}">
+      <span>${a.name} (#${a.id})</span>
+      <span class="badge ${a.enabled?'ok':''}">${a.enabled?'on':'off'} · (${a.x},${a.y})</span>
+    </div>`
+  ).join('') || '<div class="hint">No anchors — add one</div>';
+  al.querySelectorAll('[data-aid]').forEach(el => el.onclick = () => selectAnchor(+el.dataset.aid));
+
+  const rs = document.getElementById('aRoom');
+  rs.innerHTML = '<option value="">(none)</option>' +
+    (c.rooms || []).map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+
+  document.getElementById('snapSel').value = String(c.grid_snap_m || 0.5);
+
+  const un = view.unregistered || {};
+  const keys = Object.keys(un);
+  document.getElementById('unregBox').innerHTML = keys.length
+    ? `<h3 style="font-size:.85rem;color:var(--warn)">Unregistered IDs heard</h3>` +
+      keys.map(id => `<button class="btn" style="margin:4px 4px 0 0" data-reg="${id}">Register #${id}</button>`).join('')
+    : '';
+  document.querySelectorAll('[data-reg]').forEach(b => b.onclick = async () => {
+    await api('/api/anchors', { method: 'POST', body: JSON.stringify({ id: +b.dataset.reg, x: 0, y: 0 }) });
+    await load();
+  });
+}
+
+function selectRoom(id) {
+  sel = { type: 'room', id };
+  const r = view.config.rooms.find(x => x.id === id);
+  if (!r) return;
+  document.getElementById('propsEmpty').style.display = 'none';
+  document.getElementById('propsRoom').style.display = 'block';
+  document.getElementById('propsAnchor').style.display = 'none';
+  document.getElementById('rName').value = r.name;
+  document.getElementById('rOx').value = r.origin_x;
+  document.getElementById('rOy').value = r.origin_y;
+  document.getElementById('rW').value = r.width;
+  document.getElementById('rH').value = r.height;
+  map.setSelectedRoom(id);
+  refreshLists();
+}
+
+function selectAnchor(id) {
+  sel = { type: 'anchor', id };
+  const a = view.config.anchors.find(x => x.id === id);
+  if (!a) return;
+  document.getElementById('propsEmpty').style.display = 'none';
+  document.getElementById('propsRoom').style.display = 'none';
+  document.getElementById('propsAnchor').style.display = 'block';
+  document.getElementById('aName').value = a.name;
+  document.getElementById('aX').value = a.x;
+  document.getElementById('aY').value = a.y;
+  document.getElementById('aRoom').value = a.room_id || '';
+  document.getElementById('aEn').checked = a.enabled !== false;
+  map.setSelected(id);
+  refreshLists();
+}
+
+async function load() {
+  const j = await api('/api/config');
+  if (!j.ok) return;
+  view = j.data;
+  map.setConfig(view);
+  refreshLists();
+}
+
+document.getElementById('btnAddRoom').onclick = async () => {
+  const n = (view.config.rooms || []).length + 1;
+  await api('/api/rooms', { method: 'POST', body: JSON.stringify({
+    name: 'Room' + n, origin_x: n > 1 ? 5.5 : 0, origin_y: 0, width: 4, height: 4,
+  })});
+  await load();
+};
+document.getElementById('btnAddAnchor').onclick = async () => {
+  const id = +document.getElementById('newAid').value;
+  if (!id) return alert('Enter anchor ID 1–254');
+  const j = await api('/api/anchors', { method: 'POST', body: JSON.stringify({
+    id, x: 1, y: 1, room_id: (view.config.rooms[0] || {}).id || null,
+  })});
+  if (!j.ok) return alert(j.error);
+  await load();
+  selectAnchor(id);
+};
+document.getElementById('btnSaveRoom').onclick = async () => {
+  if (sel.type !== 'room') return;
+  await api(`/api/rooms/${sel.id}`, { method: 'PATCH', body: JSON.stringify({
+    name: document.getElementById('rName').value,
+    origin_x: +document.getElementById('rOx').value,
+    origin_y: +document.getElementById('rOy').value,
+    width: +document.getElementById('rW').value,
+    height: +document.getElementById('rH').value,
+    move_anchors: document.getElementById('rMoveAnchors').checked,
+  })});
+  await load();
+};
+document.getElementById('btnDelRoom').onclick = async () => {
+  if (sel.type !== 'room' || !confirm('Delete room?')) return;
+  await api(`/api/rooms/${sel.id}`, { method: 'DELETE' });
+  sel = { type: null, id: null };
+  await load();
+};
+document.getElementById('btnSaveAnchor').onclick = async () => {
+  if (sel.type !== 'anchor') return;
+  await api(`/api/anchors/${sel.id}`, { method: 'PATCH', body: JSON.stringify({
+    name: document.getElementById('aName').value,
+    x: +document.getElementById('aX').value,
+    y: +document.getElementById('aY').value,
+    room_id: document.getElementById('aRoom').value || null,
+    enabled: document.getElementById('aEn').checked,
+  })});
+  await load();
+  selectAnchor(sel.id);
+};
+document.getElementById('btnDelAnchor').onclick = async () => {
+  if (sel.type !== 'anchor' || !confirm('Delete anchor?')) return;
+  await api(`/api/anchors/${sel.id}`, { method: 'DELETE' });
+  sel = { type: null, id: null };
+  await load();
+};
+document.getElementById('snapSel').onchange = async (e) => {
+  const cfg = Object.assign({}, view.config, { grid_snap_m: +e.target.value });
+  await api('/api/config', { method: 'PUT', body: JSON.stringify({ config: cfg }) });
+  await load();
+};
+
+load();
+</script>
+</body>
+</html>

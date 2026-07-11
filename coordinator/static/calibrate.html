@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aura Tracker — Calibration</title>
+<link rel="stylesheet" href="/static/css/theme.css">
+</head>
+<body>
+<nav class="topnav">
+  <a class="brand" href="/">
+    <img class="brand-logo" src="/static/img/aura-logo.jpg" alt="Aura Tracker">
+    <span class="brand-text">
+      <span class="brand-title">Aura Tracker</span>
+      <span class="brand-sub">RSSI based localization</span>
+    </span>
+  </a>
+  <div class="navlinks">
+    <a href="/"><span class="nav-ico">⌂</span> Home</a>
+    <a href="/setup"><span class="nav-ico">▦</span> Map Editor</a>
+    <a href="/calibrate" class="active"><span class="nav-ico">◎</span> Calibration</a>
+    <a href="/live"><span class="nav-ico">◉</span> Live Track</a>
+  </div>
+</nav>
+<div class="page">
+  <h1>Path-loss calibration</h1>
+  <p class="sub">Calibrate <strong>one anchor at a time</strong> at its final mounted position. Results save to the layout config automatically.</p>
+
+  <div id="calBanner" class="banner-bad" style="display:none"></div>
+
+  <div class="grid2">
+    <div class="panel" style="padding:22px">
+      <h2 style="font-size:1.15rem;color:var(--neon);margin-bottom:12px">What you need</h2>
+      <ul class="checklist">
+        <li>Tape measure + floor marks every <strong>1 m</strong>, starting at <strong>1 m</strong> from the anchor (e.g. 1 m, 2 m, 3 m, …)</li>
+        <li>Tag powered and broadcasting (flash env <code>tag</code>)</li>
+        <li>This anchor powered on Wi‑Fi; ideally flashed with <code>anchorN_cal</code> (calibration mode)</li>
+        <li>Clear line-of-sight — no people/furniture between tag and anchor</li>
+        <li>Tag at same height as anchor, antenna vertical</li>
+        <li>Do not move the anchor after calibrating</li>
+        <li>Do not run live tracking expectations during cal — finish cal first</li>
+      </ul>
+      <p class="hint">Target RMSE &lt; 3 dB (excellent), &lt; 5 dB acceptable. Recollect noisy distances if needed.</p>
+
+      <h2 style="font-size:1.15rem;color:var(--neon);margin:20px 0 12px">How it works</h2>
+      <ol class="checklist" style="list-style:decimal;padding-left:20px">
+        <li style="list-style:decimal">Select anchor ID → Start session</li>
+        <li style="list-style:decimal">Place tag at next 1 m step → Collect samples (~80)</li>
+        <li style="list-style:decimal">Commit point → repeat for ≥3 distances (use 1 m spacing)</li>
+        <li style="list-style:decimal">Fit model → A (RSSI @ 1 m) and n (path-loss exponent) saved</li>
+        <li style="list-style:decimal">Reflash anchor to normal mode (<code>anchorN</code>) for live use</li>
+      </ol>
+    </div>
+
+    <div class="panel" style="padding:22px">
+      <label>Anchor to calibrate</label>
+      <select id="aidSel"></select>
+
+      <label style="display:flex;align-items:center;gap:8px;text-transform:none;margin-top:12px">
+        <input type="checkbox" id="acceptNormal" checked>
+        Accept normal-mode packets too (if not on cal firmware)
+      </label>
+
+      <div class="row" style="margin-top:14px">
+        <button class="btn" id="btnStart">Start calibration session</button>
+        <button class="btn danger" id="btnCancel">Cancel</button>
+      </div>
+
+      <div id="sessionBox" style="margin-top:20px;display:none">
+        <div class="badge ok" id="phaseBadge">idle</div>
+        <p class="msg" id="msg"></p>
+
+        <label>Distance for this burst (m)</label>
+        <div class="row">
+          <select id="distSel"></select>
+          <button class="btn" id="btnCollect">Collect samples</button>
+          <button class="btn" id="btnCommit">Commit point</button>
+        </div>
+
+        <div class="progress"><i id="prog"></i></div>
+        <div class="hint" id="sampleLine">0 / 80 samples</div>
+
+        <table class="table" style="margin-top:14px">
+          <thead><tr><th>Dist (m)</th><th>Mean RSSI</th><th>σ (dB)</th><th>n</th></tr></thead>
+          <tbody id="ptsBody"></tbody>
+        </table>
+
+        <button class="btn" style="margin-top:14px;width:100%" id="btnFit" disabled>
+          Fit A & n and save
+        </button>
+        <div id="fitResult" class="msg"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel section" style="padding:20px;margin-top:20px">
+    <h2 style="font-size:1.1rem;color:var(--neon-soft);margin-bottom:12px">Calibration status (all anchors)</h2>
+    <div id="statusEmpty" class="banner-bad" style="display:none"></div>
+    <table class="table" id="statusTable">
+      <thead><tr><th>ID</th><th>Name</th><th>A (dBm)</th><th>n</th><th>RMSE</th><th>Pos</th></tr></thead>
+      <tbody id="statusBody"></tbody>
+    </table>
+  </div>
+</div>
+<script>
+const DEFAULT_D = [1.0, 2.0, 3.0, 4.0, 5.0];
+let pollTimer = null;
+
+async function api(path, opts) {
+  const r = await fetch(path, Object.assign({
+    headers: { 'Content-Type': 'application/json' },
+  }, opts || {}));
+  return r.json();
+}
+
+async function loadConfig() {
+  const j = await api('/api/config');
+  if (!j.ok) return;
+  const sel = document.getElementById('aidSel');
+  const anchors = j.data.config.anchors || [];
+  const cal = j.data.calibration || {};
+
+  const banner = document.getElementById('calBanner');
+  const empty = document.getElementById('statusEmpty');
+  if (!cal.ready) {
+    const msg = 'No calibration file / data found — status cannot be displayed properly. Kindly run calibration for each anchor.';
+    banner.style.display = 'block';
+    banner.textContent = msg;
+    empty.style.display = 'block';
+    empty.textContent = msg;
+  } else {
+    banner.style.display = 'none';
+    empty.style.display = 'none';
+  }
+
+  sel.innerHTML = anchors.map(a =>
+    `<option value="${a.id}">#${a.id} ${a.name} @ (${a.x}, ${a.y})</option>`
+  ).join('') || '<option value="1">#1 (not in config yet)</option>';
+
+  document.getElementById('statusBody').innerHTML = anchors.map(a =>
+    `<tr>
+      <td>${a.id}</td><td>${a.name}</td>
+      <td>${Number(a.A).toFixed(1)}</td><td>${Number(a.n).toFixed(2)}</td>
+      <td>${a.rmse != null ? Number(a.rmse).toFixed(2) : '—'}</td>
+      <td>(${a.x}, ${a.y})</td>
+    </tr>`
+  ).join('') || '<tr><td colspan="6">No anchors — add them in Map Editor first</td></tr>';
+}
+
+function fillDistances(list) {
+  const s = document.getElementById('distSel');
+  s.innerHTML = (list || DEFAULT_D).map(d =>
+    `<option value="${d}">${d.toFixed(1)} m</option>`).join('');
+}
+
+function renderSession(s) {
+  const box = document.getElementById('sessionBox');
+  if (!s.active) {
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = 'block';
+  document.getElementById('phaseBadge').textContent = s.phase + (s.anchor_id != null ? ` · A${s.anchor_id}` : '');
+  document.getElementById('msg').textContent = s.message || '';
+  const tgt = s.target_samples || 80;
+  const n = s.n_samples || 0;
+  document.getElementById('prog').style.width = Math.min(100, 100 * n / tgt) + '%';
+  document.getElementById('sampleLine').textContent =
+    `${n} / ${tgt} samples` + (s.last_rssi != null ? ` · last ${s.last_rssi.toFixed(1)} dBm` : '');
+
+  const body = document.getElementById('ptsBody');
+  const keys = Object.keys(s.points || {}).sort((a, b) => +a - +b);
+  body.innerHTML = keys.map(d => {
+    const p = s.points[d];
+    return `<tr><td>${d}</td><td>${p.mean}</td><td>${p.std}</td><td>${p.n}</td></tr>`;
+  }).join('') || '<tr><td colspan="4">No points yet</td></tr>';
+  document.getElementById('btnFit').disabled = keys.length < 3;
+
+  if (s.last_fit) {
+    const f = s.last_fit;
+    document.getElementById('fitResult').textContent =
+      `Saved: A=${f.A} dBm, n=${f.n}, RMSE=${f.rmse_dB} dB` +
+      (f.rmse_dB < 3 ? ' · GOOD' : f.rmse_dB < 5 ? ' · OK' : ' · redo noisy points');
+  }
+  if (s.distances) fillDistances(s.distances);
+}
+
+async function poll() {
+  const j = await api('/api/cal/status');
+  if (j.ok) renderSession(j.data);
+}
+
+document.getElementById('btnStart').onclick = async () => {
+  const aid = +document.getElementById('aidSel').value;
+  const j = await api('/api/cal/start', {
+    method: 'POST',
+    body: JSON.stringify({
+      anchor_id: aid,
+      samples: 80,
+      accept_normal_mode: document.getElementById('acceptNormal').checked,
+      distances: DEFAULT_D,
+    }),
+  });
+  if (!j.ok) return alert(j.error);
+  fillDistances(DEFAULT_D);
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(poll, 400);
+  await poll();
+};
+
+document.getElementById('btnCollect').onclick = async () => {
+  const d = +document.getElementById('distSel').value;
+  const j = await api('/api/cal/collect', {
+    method: 'POST',
+    body: JSON.stringify({ distance_m: d, samples: 80 }),
+  });
+  if (!j.ok) alert(j.error);
+  await poll();
+};
+
+document.getElementById('btnCommit').onclick = async () => {
+  const j = await api('/api/cal/commit_point', { method: 'POST', body: '{}' });
+  if (!j.ok) alert(j.error);
+  await poll();
+};
+
+document.getElementById('btnFit').onclick = async () => {
+  const j = await api('/api/cal/fit', { method: 'POST', body: '{}' });
+  if (!j.ok) return alert(j.error);
+  await poll();
+  await loadConfig();
+  alert('Calibration saved. Reflash this anchor to normal mode for live tracking.');
+};
+
+document.getElementById('btnCancel').onclick = async () => {
+  await api('/api/cal/cancel', { method: 'POST', body: '{}' });
+  if (pollTimer) clearInterval(pollTimer);
+  await poll();
+};
+
+fillDistances(DEFAULT_D);
+loadConfig();
+poll();
+</script>
+</body>
+</html>

@@ -1,0 +1,72 @@
+{
+  "anchors": [
+    {
+      "A": -60.776,
+      "enabled": true,
+      "id": 1,
+      "n": 2.356,
+      "name": "A1",
+      "rmse": 0.434,
+      "room_id": "room1",
+      "x": -2.5,
+      "y": 0.0
+    },
+    {
+      "A": -62.1,
+      "enabled": true,
+      "id": 2,
+      "n": 2.79,
+      "name": "A2",
+      "rmse": 1.64,
+      "room_id": "room1",
+      "x": 2.5,
+      "y": 0.0
+    },
+    {
+      "A": -63.4,
+      "enabled": true,
+      "id": 3,
+      "n": 2.93,
+      "name": "A3",
+      "rmse": 1.48,
+      "room_id": "room1",
+      "x": 2.5,
+      "y": 4.0
+    },
+    {
+      "A": -61.8,
+      "enabled": true,
+      "id": 4,
+      "n": 2.87,
+      "name": "A4",
+      "rmse": 1.57,
+      "room_id": "room1",
+      "x": -2.5,
+      "y": 4.0
+    }
+  ],
+  "defaults": {
+    "A": -60,
+    "n": 2.7
+  },
+  "grid_snap_m": 0.5,
+  "map": {
+    "padding_m": 0.5,
+    "show_grid": true
+  },
+  "min_anchors": 3,
+  "profile": "custom",
+  "rooms": [
+    {
+      "height": 4.0,
+      "id": "room1",
+      "name": "Room1",
+      "origin_x": -2.5,
+      "origin_y": 0.0,
+      "width": 5.0
+    }
+  ],
+  "setup_complete": true,
+  "updated_at": "2026-07-11T17:26:27",
+  "version": 1
+}

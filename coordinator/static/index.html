@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aura Tracker — Layout Setup</title>
+<link rel="stylesheet" href="/static/css/theme.css">
+</head>
+<body>
+<nav class="topnav">
+  <a class="brand" href="/">
+    <img class="brand-logo" src="/static/img/aura-logo.jpg" alt="Aura Tracker">
+    <span class="brand-text">
+      <span class="brand-title">Aura Tracker</span>
+      <span class="brand-sub">RSSI based localization</span>
+    </span>
+  </a>
+  <div class="navlinks">
+    <a href="/" class="active"><span class="nav-ico">⌂</span> Home</a>
+    <a href="/setup"><span class="nav-ico">▦</span> Map Editor</a>
+    <a href="/calibrate"><span class="nav-ico">◎</span> Calibration</a>
+    <a href="/live"><span class="nav-ico">◉</span> Live Track</a>
+  </div>
+</nav>
+<div class="page">
+  <h1>Layout setup</h1>
+  <p class="sub" id="statusLine">Choose a starting layout. You need at least <strong>3 anchors</strong> with known positions for localization.</p>
+
+  <div class="grid2" id="choices">
+    <div class="panel choice" id="btnDefault">
+      <span class="tag">Preset</span>
+      <h2>Default layout</h2>
+      <p>4 anchors at the corners of a <strong>5 m × 4 m</strong> lab room (A1–A4). Uses your existing calibration values if present. Jump straight to live tracking or calibration.</p>
+      <button class="btn" type="button">Use default 4-anchor layout</button>
+    </div>
+    <div class="panel choice" id="btnCustom">
+      <span class="tag">Multi-room / N anchors</span>
+      <h2>Custom layout</h2>
+      <p>Create one or more rooms, set sizes and origins, add as many anchors as you need (IDs 1–254), place them by coordinates or snap drag-and-drop on the map editor.</p>
+      <div class="row" style="margin-top:8px">
+        <button class="btn" type="button" id="btnCustomKeep">Customize current</button>
+        <button class="btn" type="button" id="btnCustomReset">Start blank custom</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel section" style="padding:22px;margin-top:22px" id="currentBox">
+    <h2 style="font-size:1.15rem;color:var(--neon-soft);margin-bottom:12px">Current layout</h2>
+    <div id="currentSummary" class="sub" style="margin:0">Loading…</div>
+    <div class="row" style="margin-top:16px">
+      <a class="btn" href="/setup">Open map editor</a>
+      <a class="btn" href="/calibrate">Calibrate anchors</a>
+      <a class="btn" href="/live">Go to live tracking</a>
+    </div>
+  </div>
+</div>
+<script>
+async function api(path, opts) {
+  const r = await fetch(path, Object.assign({
+    headers: { 'Content-Type': 'application/json' }
+  }, opts || {}));
+  return r.json();
+}
+
+function summarize(view) {
+  const c = view.config;
+  const n = (c.anchors || []).length;
+  const ne = (c.anchors || []).filter(a => a.enabled !== false).length;
+  const nr = (c.rooms || []).length;
+  const aabb = view.aabb;
+  const cal = view.calibration || {};
+  const calLine = cal.ready
+    ? `Calibration: ready (${cal.n_file_entries || 0} entries)`
+    : 'Calibration: not found — please calibrate anchors';
+  return `Profile: <b>${c.profile || '?'}</b> · setup_complete=${c.setup_complete}
+    · ${ne}/${n} anchors enabled · ${nr} room(s)
+    · floor ≈ ${aabb.width.toFixed(1)} × ${aabb.height.toFixed(1)} m
+    · snap ${c.grid_snap_m} m<br>${calLine}`;
+}
+
+async function refresh() {
+  const j = await api('/api/config');
+  if (!j.ok) return;
+  document.getElementById('currentSummary').innerHTML = summarize(j.data);
+  if (j.data.config.setup_complete) {
+    document.getElementById('statusLine').textContent =
+      'Adjust the layout according to your room and anchor node position and configuration to get the desired result.';
+  }
+}
+
+document.getElementById('btnDefault').querySelector('button').onclick = async () => {
+  const j = await api('/api/setup/default', { method: 'POST', body: '{}' });
+  if (j.ok) location.href = '/calibrate';
+  else alert(j.error || 'Failed');
+};
+document.getElementById('btnCustomKeep').onclick = async () => {
+  const j = await api('/api/setup/custom', { method: 'POST', body: JSON.stringify({ reset: false }) });
+  if (j.ok) location.href = '/setup';
+  else alert(j.error || 'Failed');
+};
+document.getElementById('btnCustomReset').onclick = async () => {
+  if (!confirm('Reset to one empty room with no anchors?')) return;
+  const j = await api('/api/setup/custom', { method: 'POST', body: JSON.stringify({ reset: true }) });
+  if (j.ok) location.href = '/setup';
+  else alert(j.error || 'Failed');
+};
+refresh();
+</script>
+</body>
+</html>

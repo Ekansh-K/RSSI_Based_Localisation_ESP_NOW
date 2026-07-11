@@ -11,14 +11,14 @@ Usage:
 
 Saves results to calibration_results.json which server.py reads.
 """
-import socket, struct, time, json, argparse, sys, os
+import socket, struct, time, json, argparse, sys, os, math
 import numpy as np
 from scipy.optimize import curve_fit
 
 REPORT_FMT  = '<BfBIBHB'
 REPORT_SIZE = struct.calcsize(REPORT_FMT)   # = 14 bytes
 
-DEFAULT_DISTANCES = [1.0, 1.5, 2.0, 3.0, 4.0, 5.0]
+DEFAULT_DISTANCES = [1.0, 2.0, 3.0, 4.0, 5.0]  # 1 m steps from 1 m
 CAL_FILE = os.path.join(os.path.dirname(__file__), 'calibration_results.json')
 
 
@@ -40,7 +40,14 @@ def collect_samples(sock, anchor_id, n_samples, timeout=90.0):
         aid, avg_rssi, ch, ts, tid, scount, cal = struct.unpack(REPORT_FMT, data[:REPORT_SIZE])
         if aid != anchor_id:
             continue
-        samples.append(avg_rssi)
+        # Only accept calibration-mode reports (flash anchor*_cal). Avoids mixing
+        # window-averaged normal-mode packets into the path-loss fit.
+        if cal != 1:
+            continue
+        # Reject invalid / unset RSSI
+        if not math.isfinite(avg_rssi) or avg_rssi < -120.0 or avg_rssi > 0.0:
+            continue
+        samples.append(float(avg_rssi))
         print(f"  {len(samples):>3}/{n_samples}  RSSI = {avg_rssi:6.1f} dBm", end='\r', flush=True)
     print()
     return samples
@@ -126,9 +133,10 @@ def main():
         if len(samples) < 10:
             print(f"  Only {len(samples)} samples — skipping.")
             continue
-        mean_v = float(np.mean(samples))
+        # Median is more robust than mean for multipath spikes / left-skewed RSSI
+        mean_v = float(np.median(samples))
         std_v  = float(np.std(samples))
-        print(f"  {d:.1f} m → mean={mean_v:.2f} dBm  σ={std_v:.2f} dB  (n={len(samples)})")
+        print(f"  {d:.1f} m → median={mean_v:.2f} dBm  σ={std_v:.2f} dB  (n={len(samples)})")
         distances_done.append(d)
         mean_rssi_list.append(mean_v)
         std_rssi_list.append(std_v)
@@ -165,9 +173,17 @@ def main():
     with open(CAL_FILE, 'w') as f:
         json.dump(list(all_results.values()), f, indent=2)
 
+    # Also patch site_config.json if present (dashboard multi-anchor layout)
+    try:
+        import site_config as site
+        if site.update_anchor_calibration(aid, A_best, n_best, fits['rmse_dB']):
+            print(f"  Also updated site_config.json for anchor {aid}")
+    except Exception as ex:
+        print(f"  (site_config update skipped: {ex})")
+
     print(f"\n  Saved to {CAL_FILE}")
-    print(f"  *** Reflash Anchor {aid} with env:anchor{aid} (normal mode) ***")
-    print(f"  Recommended: DEFAULT_A={A_best}f  DEFAULT_N={n_best}f")
+    print(f"  *** Reflash Anchor {aid} with normal mode (env:anchor or -D ANCHOR_ID={aid}) ***")
+    print(f"  Recommended: A={A_best}  n={n_best}")
     print(f"{'='*55}\n")
 
 

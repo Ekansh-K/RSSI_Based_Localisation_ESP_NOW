@@ -1,0 +1,9 @@
+plan-docs
+.vscode
+results
+calibration_results.json
+*.pyc
+__pycache__/
+.venv
+*.ttf
+coordinator\test_full_suite.py

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aura Tracker — Live</title>
+<link rel="stylesheet" href="/static/css/theme.css">
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+<nav class="topnav">
+  <a class="brand" href="/">
+    <img class="brand-logo" src="/static/img/aura-logo.jpg" alt="Aura Tracker">
+    <span class="brand-text">
+      <span class="brand-title">Aura Tracker</span>
+      <span class="brand-sub">RSSI based localization</span>
+    </span>
+  </a>
+  <div class="navlinks">
+    <a href="/"><span class="nav-ico">⌂</span> Home</a>
+    <a href="/setup"><span class="nav-ico">▦</span> Map Editor</a>
+    <a href="/calibrate"><span class="nav-ico">◎</span> Calibration</a>
+    <a href="/live" class="active"><span class="nav-ico">◉</span> Live Track</a>
+  </div>
+</nav>
+<div class="page">
+  <h1>Live position</h1>
+  <div id="calWarn" class="banner-bad" style="display:none"></div>
+  <p class="sub" id="modeLine">Waiting for ≥3 coherent anchors…</p>
+
+  <div class="stat-row">
+    <div class="card stat"><div class="val" id="pos">—</div><div class="lbl">Position (x, y) m</div></div>
+    <div class="card stat"><div class="val" id="nanch">—</div><div class="lbl">Used / available / enabled</div></div>
+    <div class="card stat"><div class="val" id="fixode">—</div><div class="lbl">Fix mode</div></div>
+    <div class="card stat"><div class="val" id="conn">…</div><div class="lbl">Link</div></div>
+  </div>
+
+  <div class="panel" id="mapwrap" style="margin-bottom:16px"><canvas class="map" id="map"></canvas></div>
+
+  <div class="anchor-grid" id="cards"></div>
+</div>
+<script src="/static/js/map.js"></script>
+<script>
+const map = FloorMap.createMap(document.getElementById('map'), { interactive: false });
+let view = null;
+let calReady = true;
+
+async function loadConfig() {
+  const r = await fetch('/api/config');
+  const j = await r.json();
+  if (!j.ok) return;
+  view = j.data;
+  map.setConfig(view);
+  buildCards(view);
+
+  const cal = j.data.calibration || {};
+  calReady = !!cal.ready;
+  const warn = document.getElementById('calWarn');
+  if (!calReady) {
+    warn.style.display = 'block';
+    warn.textContent =
+      'Calibration is not done yet — live tracking will not work properly. Please open Calibration and calibrate your anchors first.';
+  } else {
+    warn.style.display = 'none';
+  }
+
+  if (!view.config.setup_complete) {
+    document.getElementById('modeLine').textContent =
+      'Layout setup not complete — choose default or custom layout on the Home page.';
+  } else if (!calReady) {
+    document.getElementById('modeLine').textContent =
+      'Calibration missing — position estimates will be inaccurate or unavailable until you calibrate.';
+  }
+}
+
+function buildCards(view) {
+  const el = document.getElementById('cards');
+  const live = view.live_rssi || {};
+  el.innerHTML = (view.config.anchors || []).map(a => {
+    const L = live[String(a.id)];
+    const rssi = L ? L.rssi.toFixed(1) + ' dBm' : '—';
+    const age = L ? L.age.toFixed(1) + 's' : '';
+    return `<div class="card" id="card-${a.id}">
+      <div class="val" style="font-size:1.15rem" id="rssi-${a.id}">${rssi}</div>
+      <div class="lbl">${a.name} (#${a.id}) ${a.enabled===false?'[off]':''} ${age}</div>
+    </div>`;
+  }).join('') || '<p class="hint">No anchors configured</p>';
+}
+
+const socket = io();
+socket.on('connect', () => {
+  document.getElementById('conn').textContent = 'ON';
+  document.getElementById('conn').style.color = 'var(--neon)';
+});
+socket.on('disconnect', () => {
+  document.getElementById('conn').textContent = 'OFF';
+  document.getElementById('conn').style.color = 'var(--danger)';
+});
+socket.on('config_updated', (v) => {
+  view = v;
+  map.setConfig(v);
+  buildCards(v);
+  loadConfig();
+});
+socket.on('position_update', (d) => {
+  if (!calReady) {
+    document.getElementById('modeLine').textContent =
+      'Calibration is not done yet — live tracking will not work properly. Please calibrate first.';
+  }
+  document.getElementById('pos').textContent = `(${d.x}, ${d.y})`;
+  document.getElementById('nanch').textContent =
+    `${d.n_anchors} / ${d.n_available} / ${d.n_enabled || '?'}`;
+  const mode = d.fix_mode === 'room'
+    ? `ROOM ${d.room_id || ''}`
+    : 'GLOBAL';
+  document.getElementById('fixode').textContent = mode;
+  if (calReady) {
+    document.getElementById('modeLine').textContent =
+      d.fix_mode === 'room'
+        ? `Using room-local anchors (≥3 in ${d.room_id}). Other rooms ignored for this fix.`
+        : `Global multilateration — no single room had ≥3 fresh anchors (or only one room).`;
+  }
+  map.setLive(d);
+  Object.keys(d.rssi || {}).forEach(id => {
+    const el = document.getElementById('rssi-' + id);
+    if (el) el.textContent = d.rssi[id] + ' dBm';
+    const card = document.getElementById('card-' + id);
+    if (card) {
+      card.style.borderColor = (d.used_anchors || []).includes(+id)
+        ? 'var(--neon)' : 'var(--border)';
+    }
+  });
+});
+
+loadConfig();
+setInterval(loadConfig, 4000);
+</script>
+</body>
+</html>
